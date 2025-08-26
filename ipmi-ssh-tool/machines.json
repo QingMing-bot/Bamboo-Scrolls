@@ -1,0 +1,9 @@
+[
+  {
+    "ipmi_ip": "192.168.10.14",
+    "ipmi_user": "root",
+    "ipmi_pwd": "1",
+    "ssh_ip": "192.168.10.14",
+    "ssh_user": "root"
+  }
+]
