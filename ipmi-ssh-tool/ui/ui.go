@@ -17,6 +17,13 @@ import (
 	"github.com/QingMing-bot/ipmi-ssh-tool/ssh"
 )
 
+// 全局页面索引
+const (
+	InputPage = iota
+	ConfigPage
+	SSHOperatePage
+)
+
 // MainWindow 创建主窗口
 func MainWindow(app fyne.App) fyne.Window {
 	win := app.NewWindow("IPMI-SSH 批量管理工具")
@@ -32,23 +39,44 @@ func MainWindow(app fyne.App) fyne.Window {
 		newSSHOperatePage(stack),
 	}
 
+	// 添加所有页面到容器
 	for _, page := range pages {
 		stack.Add(page)
 	}
-	stack.Objects = pages // 确保 Objects 被正确赋值
-	stack.ShowOnly(pages[0])
+	
+	// 显示初始页面 - 修复1: 直接调用页面对象的Show方法
+	pages[InputPage].Show()
 
 	win.SetContent(stack)
 	return win
 }
 
-// newInputPage 机器信息录入页
+// 页面切换函数 - 修复2: 使用正确的容器类型 *fyne.Container
+func showPage(stack *fyne.Container, pageIndex int) {
+	if pageIndex < 0 || pageIndex >= len(stack.Objects) {
+		return
+	}
+	
+	// 隐藏所有页面
+	for _, obj := range stack.Objects {
+		obj.Hide()
+	}
+	
+	// 显示目标页面
+	stack.Objects[pageIndex].Show()
+	stack.Refresh()
+}
+
+// newInputPage 机器信息录入页 - 修复3: 使用正确的容器类型 *fyne.Container
 func newInputPage(stack *fyne.Container) fyne.CanvasObject {
 	// 初始化数据绑定
 	machineData := binding.NewUntypedList()
 	if ms, err := config.Load(); err == nil {
 		machineData.Set(toInterfaceSlice(ms))
 	}
+
+	// 添加行选择状态管理
+	selectedRows := make(map[int]bool)
 
 	// 表格组件
 	table := widget.NewTable(
@@ -109,6 +137,19 @@ func newInputPage(stack *fyne.Container) fyne.CanvasObject {
 		},
 	)
 
+	// 表格选择事件
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row >= 0 {
+			selectedRows[id.Row] = true
+		}
+	}
+	
+	table.OnUnselected = func(id widget.TableCellID) {
+		if id.Row >= 0 {
+			delete(selectedRows, id.Row)
+		}
+	}
+
 	table.SetColumnWidth(0, 150)
 	table.SetColumnWidth(1, 120)
 	table.SetColumnWidth(2, 120)
@@ -124,25 +165,21 @@ func newInputPage(stack *fyne.Container) fyne.CanvasObject {
 	})
 
 	delBtn := widget.NewButton("删除选中", func() {
-		selectedRows := table.SelectedRows()
-		if selectedRows == nil {
+		if len(selectedRows) == 0 {
 			return
 		}
-		selected, ok := selectedRows.([]int)
-		if !ok || len(selected) == 0 {
-			return
-		}
-
+		
 		items, _ := machineData.Get()
-		newItems := make([]interface{}, 0, len(items)-len(selected))
-
+		newItems := make([]interface{}, 0, len(items)-len(selectedRows))
+		
 		for i, item := range items {
-			if !contains(selected, i) {
+			if !selectedRows[i] {
 				newItems = append(newItems, item)
 			}
 		}
-
+		
 		_ = machineData.Set(newItems)
+		selectedRows = make(map[int]bool) // 重置选择状态
 		table.UnselectAll()
 		table.Refresh()
 	})
@@ -167,7 +204,7 @@ func newInputPage(stack *fyne.Container) fyne.CanvasObject {
 			showDialog("提示", "请先添加机器信息")
 			return
 		}
-		stack.ShowOnly(stack.Objects[1])
+		showPage(stack, ConfigPage) // 使用新方法切换页面
 	})
 
 	// 布局
@@ -180,12 +217,12 @@ func newInputPage(stack *fyne.Container) fyne.CanvasObject {
 	)
 }
 
-// newConfigPage 自动化配置页
+// newConfigPage 自动化配置页 - 修复4: 使用正确的容器类型 *fyne.Container
 func newConfigPage(stack *fyne.Container) fyne.CanvasObject {
 	progress := widget.NewProgressBar()
 	logText := widget.NewEntry()
 	logText.MultiLine = true
-	logText.SetReadOnly(true)
+	logText.Disable() // 替换 SetReadOnly(true)
 
 	startBtn := widget.NewButton("开始配置", func() {
 		logText.SetText("")
@@ -234,13 +271,13 @@ func newConfigPage(stack *fyne.Container) fyne.CanvasObject {
 			}
 
 			addLog(logText, fmt.Sprintf("配置完成: 成功%d台，失败%d台",
-				successCount, len(ms)-successCount))
-			stack.ShowOnly(stack.Objects[2])
+			successCount, len(ms)-successCount))
+			showPage(stack, SSHOperatePage) // 使用新方法切换页面
 		}()
 	})
 
 	backBtn := widget.NewButton("返回", func() {
-		stack.ShowOnly(stack.Objects[0])
+		showPage(stack, InputPage)
 	})
 
 	return container.NewVBox(
@@ -251,7 +288,7 @@ func newConfigPage(stack *fyne.Container) fyne.CanvasObject {
 	)
 }
 
-// newSSHOperatePage SSH批量操作页
+// newSSHOperatePage SSH批量操作页 - 修复5: 使用正确的容器类型 *fyne.Container
 func newSSHOperatePage(stack *fyne.Container) fyne.CanvasObject {
 	operateCombo := widget.NewSelect([]string{"批量SSH连接（交互）", "批量执行命令"}, nil)
 	operateCombo.SetSelectedIndex(0)
@@ -261,7 +298,7 @@ func newSSHOperatePage(stack *fyne.Container) fyne.CanvasObject {
 	cmdInput.Hide()
 
 	resultText := widget.NewMultiLineEntry()
-	resultText.SetReadOnly(true)
+	resultText.Disable() // 替换 SetReadOnly(true)
 
 	// 切换操作类型
 	operateCombo.OnChanged = func(s string) {
@@ -323,7 +360,7 @@ func newSSHOperatePage(stack *fyne.Container) fyne.CanvasObject {
 	})
 
 	backBtn := widget.NewButton("返回配置页", func() {
-		stack.ShowOnly(stack.Objects[1])
+		showPage(stack, ConfigPage)
 	})
 
 	return container.NewVBox(
@@ -354,13 +391,4 @@ func toInterfaceSlice(ms config.Machines) []interface{} {
 		result[i] = m
 	}
 	return result
-}
-
-func contains(slice []int, value int) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
-	}
-	return false
 }
