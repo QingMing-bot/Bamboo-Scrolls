@@ -1,0 +1,145 @@
+/* 新暗色主题 + 分段导航布局 */
+:root { /* 全局 CSS 变量定义根 */
+	--bg:#0b0d11; --bg-alt:#14171d; --panel:#191d24; --panel-alt:#1f242b; --border:#272e37; --line:#2f3742; /* 背景/面板/边框色 */
+	--text:#e5eaf1; --text-dim:#8b97a5; --accent:#3b82f6; --accent-hover:#2563eb; --radius:6px; --danger:#dc4040; --warn:#d8a431; /* 文本与强调/警告色 */
+	--green:#059669; --orange:#d97706; --pink:#db2777; --indigo:#4f46e5; --blue:#0ea5e9; --teal:#0d9488; /* 备用调色板 */
+	--focus:0 0 0 2px rgba(59,130,246,.4); --shadow:0 2px 4px -2px rgba(0,0,0,.5); /* 聚焦阴影 & 卡片阴影 */
+	--code:#0f172a; --font-stack:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; /* 代码区背景与字体栈 */
+	--top-h:340px; /* (当前未强制使用) 原：批量控制顶部三块统一高度参数 */
+	--ctrl-top-left-h:320px; /* 顶部左侧两块统一高度 (IPMI 输入 & 匹配操作) */
+	--ctrl-top-exec-h:calc(var(--ctrl-top-left-h) + 200px); /* 命令执行块高度 = 左侧块高度 +200px (再次 +50px) */
+	--ctrl-exec-extra:calc(var(--ctrl-top-exec-h) - var(--ctrl-top-left-h)); /* 执行块额外增加的高度差值 */
+	--ctrl-input-offset:14px; /* 仅 IPMI 输入卡片下移偏移 (当前 14px) */
+	--ctrl-input-bottom-delta:14px; /* IPMI 输入底部补差 (正值 -> 拉长以对齐底部) */
+	--ctrl-log-offset:10px; /* 执行日志卡片下移偏移 */
+}
+*{box-sizing:border-box;} /* 统一盒模型为 border-box */
+html,body{height:100%;} /* 让页面根元素撑满视口高度 */
+body{margin:0;font-family:var(--font-stack);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;} /* 页面基础样式 */
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:.5px;} /* 标题基础重置 */
+
+/* 顶部分段导航 */
+.segbar{position:relative;display:flex;padding:10px 14px;background:var(--bg-alt);border-bottom:1px solid var(--border);--seg-gap:0;} /* 导航条容器 */
+.segbar .seg{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 4px;color:var(--text-dim);font-size:.78rem;letter-spacing:.5px;cursor:pointer;user-select:none;position:relative;z-index:2;transition:color .25s;}
+.segbar .seg:hover{color:var(--text);} /* 悬停高亮 */
+.segbar .seg.active{color:#fff;font-weight:600;} /* 激活时仅改文字，背景由 slider 负责 */
+.segbar .seg-slider{position:absolute;top:6px;bottom:6px;left:0;width:0;background:linear-gradient(135deg,var(--accent),var(--accent-hover));border:1px solid var(--accent);box-shadow:0 2px 8px -2px rgba(0,0,0,.6);border-radius:6px;z-index:1;transition:transform .35s cubic-bezier(.25,.8,.3,1),width .35s;}
+.segbar.init .seg-slider{transition:none;} /* 初次定位关闭动画 */
+
+/* 主区域 */
+.main-wrap{padding:10px 16px 22px;height:calc(100vh - 58px);display:flex;flex-direction:column;gap:12px;overflow:hidden;} /* 主内容容器布局 */
+/* 批量控制页面专用网格填充 */
+#page-control > .fade{flex:1;display:grid!important;grid-template-columns:300px 300px 1fr;grid-template-rows:auto auto 1fr;grid-template-areas:"input action exec" "match match exec" "log log log";gap:14px;overflow:hidden;align-items:start;} /* 调整为前两行自适应, 日志 1fr */
+#ctrl_input_card{grid-area:input;display:flex;flex-direction:column;overflow:auto;margin-top:var(--ctrl-input-offset);} /* 去除固定高度 */
+#ctrl_action_card{grid-area:action;display:flex;flex-direction:column;overflow:auto;} /* 去固定高度 */
+#ctrl_exec_card{grid-area:exec;display:flex;flex-direction:column;overflow:auto;min-height:260px;} /* 执行卡片自适应 */
+/* 去掉 margin/height hack，使用两行合并让执行区与匹配结果底部对齐 */
+#ctrl_match_card{grid-area:match;display:flex;flex-direction:column;overflow:auto;} /* 匹配结果卡片自适应 */
+/* 不再需要占位 spacer */
+/* #ctrl_spacer{grid-area:spacer;}  */
+#ctrl_log_card{grid-area:log;display:flex;flex-direction:column;overflow:hidden;margin-top:var(--ctrl-log-offset);min-height:240px;} /* 日志卡片占剩余空间 */
+#ctrl_match_card .status-table-wrap{flex:1;} /* 匹配表格撑满卡片 */
+#ctrl_exec_card .status-table-wrap{flex:1;} /* (预留) 执行区内部滚动延展 */
+#ctrl_log_card .status-table-wrap{flex:1;} /* 日志容器填满 */
+#ctrl_log{flex:1;height:100%;max-height:none;} /* 日志内容区域不限制高度 */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:14px 16px;position:relative;box-shadow:var(--shadow);} /* 通用卡片样式 */
+.card + .card{margin-top:14px;} /* 垂直相邻卡片间距 */
+.layout-grid{display:grid;grid-template-columns:320px 320px 1fr;gap:20px;} /* 备用布局网格 */
+.hidden{display:none!important;} /* 强制隐藏类 */
+
+/* 资产管理主卡片自适应 */
+.asset-main{max-width:1200px;margin:0 auto;width:100%;}
+/* 历史记录主卡片 */
+.history-main{max-width:1400px;margin:0 auto;width:100%;display:flex;flex-direction:column;}
+.history-main #history_list{max-height:calc(100vh - 250px);min-height:280px;}
+@media (max-width:1100px){
+	.history-main #history_list{max-height:calc(100vh - 260px);} }
+@media (max-width:780px){
+	.history-main #history_list{max-height:calc(100vh - 300px);}
+}
+@media (max-width:1300px){
+	.asset-main{max-width:100%;}
+	.asset-main > div[style*="grid-template-columns:repeat"]{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))!important;}
+}
+@media (max-width:900px){
+	.asset-main textarea{min-height:70px;}
+	#machineTable th,#machineTable td{font-size:.7rem;padding:6px 6px;}
+}
+@media (max-width:720px){
+	.asset-main > div[style*="grid-template-columns:repeat"] label.field{flex:1 0 100%;}
+}
+
+/* 左侧与中间区块 */
+.section-title{font-size:.75rem;font-weight:600;color:var(--text-dim);letter-spacing:.6px;margin:0 0 6px;} /* 章节标题样式 */
+label.field{display:flex;flex-direction:column;gap:4px;font-size:.7rem;color:var(--text-dim);letter-spacing:.5px;font-weight:600;} /* 字段标签容器 */
+input[type=text],textarea,select,input[type=number]{width:100%;padding:8px 10px;border:1px solid var(--line);background:var(--bg-alt);color:var(--text);border-radius:4px;font:inherit;resize:vertical;box-shadow:inset 0 1px 2px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.02);transition:background .2s,border-color .2s,box-shadow .25s;} /* 表单通用输入 + 轻微内凹 */
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:inset 0 1px 2px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.05),0 0 0 2px rgba(59,130,246,.35);} /* 焦点高亮 + 内凹保持 */
+input:active,textarea:active,select:active{box-shadow:inset 0 2px 4px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04);} /* 按压更深 */
+textarea{min-height:90px;} /* 默认多行最小高度 */
+
+/* 操作按钮块 */
+.op-buttons{display:flex;flex-direction:column;gap:10px;} /* 垂直按钮组 */
+.op-btn{border:1px solid var(--line);background:var(--panel-alt);padding:10px 14px;border-radius:4px;font-size:.78rem;text-align:left;cursor:pointer;color:var(--text-dim);letter-spacing:.5px;position:relative;overflow:hidden;transition:background .25s,color .25s,box-shadow .25s,transform .12s;font-weight:500;box-shadow:0 2px 5px -1px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.03) inset;} /* 通用按钮(凸起) */
+.op-btn:hover{color:var(--text);background:var(--panel);box-shadow:0 3px 8px -1px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04) inset;} /* 悬停增强 */
+.op-btn:active{transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.05);background:var(--panel-alt);} /* 按下压感 */
+.op-btn.primary{background:linear-gradient(135deg,#0f3b52,#173b52);color:#cfe8f5;} /* 主按钮 */
+.op-btn.primary:hover{background:linear-gradient(135deg,#13485f,#1c4a62);}  /* 主按钮悬停 */
+.op-btn.green{background:linear-gradient(135deg,#0a3d33,#0e4a3e);color:#c1f5e6;} /* 绿色动作按钮 */
+.op-btn.orange{background:linear-gradient(135deg,#3d3321,#4a4128);color:#f6e2b9;} /* 橙色动作按钮 */
+.op-btn.red{background:linear-gradient(135deg,#3d1f26,#4d2630);color:#f5ccd6;} /* 红色危险按钮 */
+.op-btn.gray{background:linear-gradient(135deg,#262a30,#2d333b);color:#d5dae0;} /* 灰色信息按钮 */
+.op-btn.outline{background:transparent;border:1px solid var(--warn);color:var(--warn);}  /* 描边按钮 */
+.op-btn.outline:hover{background:rgba(216,164,49,.08);}  /* 描边悬停背景 */
+
+/* 状态/结果表 */
+.status-card{display:flex;flex-direction:column;height:100%;} /* 包装卡片用于拉伸 */
+.status-table-wrap{flex:1;position:relative;border:1px solid var(--line);border-radius:4px;overflow:auto;background:var(--panel-alt);} /* 表格滚动容器 */
+table{border-collapse:collapse;width:100%;font-size:.76rem;} /* 表格基础 */
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;} /* 单元格样式 */
+th{background:var(--bg-alt);font-weight:600;color:var(--text-dim);position:sticky;top:0;z-index:1;} /* 表头固定 */
+tr:last-child td{border-bottom:none;} /* 去掉最后一行底线 */
+tr:hover td{background:rgba(255,255,255,.03);}  /* 行悬停 */
+.placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 10px;color:var(--text-dim);} /* 空状态占位 */
+.placeholder svg{width:54px;height:54px;opacity:.55;} /* 占位图标尺寸 */
+
+/* 分页 */
+.pager{display:flex;justify-content:flex-end;gap:6px;margin-top:8px;} /* 分页条容器 */
+.pager button{background:var(--panel-alt);border:1px solid var(--line);color:var(--text-dim);font-size:.65rem;padding:4px 10px;border-radius:4px;cursor:pointer;} /* 分页按钮 */
+.pager button.active{background:var(--teal);color:#fff;border-color:var(--teal);}  /* 当前页 */
+.pager button:hover:not(.active){background:var(--panel);}  /* 悬停效果 */
+
+/* 结果日志 */
+.exec-log{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-family:Consolas,monospace;font-size:.7rem;overflow:auto;white-space:pre-wrap;line-height:1.25rem;} /* 去掉全局 max-height 由父容器控制 */
+#ctrl_log.exec-log{max-height:none;height:100%;} /* 控制页主日志填满可用空间 */
+#live_log_pre.exec-log{max-height:unset;} /* 独立实时日志同样不限制 */
+
+/* 顶部右侧操作 */
+.top-right{display:flex;align-items:center;gap:10px;margin-left:auto;} /* 顶部右侧容器 */
+.mini-btn{background:var(--panel-alt);border:1px solid var(--line);color:var(--text-dim);font-size:.65rem;padding:6px 10px;border-radius:4px;cursor:pointer;transition:background .25s,color .25s,box-shadow .25s,transform .12s;box-shadow:0 1px 3px -1px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.02) inset;} /* 小型按钮(凸起) */
+.mini-btn:hover{background:var(--panel);color:var(--text);box-shadow:0 2px 5px -1px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.03) inset;}  /* 小按钮悬停 */
+.mini-btn:active{transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.05);}
+
+/* 状态条 */
+#statusbar{position:fixed;left:0;right:0;bottom:0;background:var(--bg-alt);border-top:1px solid var(--line);padding:6px 14px;font-size:.68rem;color:var(--text-dim);display:flex;gap:12px;align-items:center;} /* 底部状态栏 */
+#statusbar .value{color:var(--text);font-weight:500;} /* 状态值加粗 */
+
+/* 动画 */
+.fade{animation:fade .3s ease;} /* 淡入过渡类 */
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}} /* 淡入关键帧 */
+
+/* 页面切换 (仅展示一个) */
+#pages{position:relative;} /* 页面容器相对定位 */
+#pages > .page{display:none;} /* 默认隐藏页面 */
+#pages > .page.active{display:block;animation:fade .25s ease;} /* 激活页面显示并淡入 */
+
+/* 顶部提示 Toast */
+.toast-container{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:9999;pointer-events:none;}
+.toast{min-width:240px;max-width:480px;background:var(--panel-alt);border:1px solid var(--line);padding:10px 14px;border-radius:4px;box-shadow:0 4px 12px -2px rgba(0,0,0,.55);font-size:.7rem;letter-spacing:.5px;display:flex;align-items:center;gap:8px;color:var(--text-dim);position:relative;overflow:hidden;pointer-events:auto;animation:toastIn .25s ease;}
+.toast.success{border-color:var(--green);color:#c9f7e9;}
+.toast.error{border-color:var(--danger);color:#f9d4da;}
+.toast::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent);opacity:.6;}
+.toast.success::before{background:var(--green);}
+.toast.error::before{background:var(--danger);}
+.toast.hide{animation:toastOut .35s ease forwards;}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,-8px);}to{opacity:1;transform:translate(-50%,0);} }
+@keyframes toastOut{to{opacity:0;transform:translate(-50%,-6px);} }

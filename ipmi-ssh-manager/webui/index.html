@@ -1,0 +1,211 @@
+<!DOCTYPE html> <!-- 文档类型声明，确保标准模式 -->
+<html lang="zh-cn"> <!-- 页面语言设为中文简体 -->
+<head>
+<meta charset="UTF-8" /> <!-- 使用 UTF-8 编码 -->
+<title>IPMI SSH Manager</title> <!-- 页面标题 -->
+<meta name="viewport" content="width=device-width,initial-scale=1" /> <!-- 视口适配 -->
+<link rel="stylesheet" href="style.css" /> <!-- 引入样式表 -->
+</head>
+<body> <!-- 页面主体开始 -->
+  <div class="segbar" id="navTabs"> <!-- 顶部标签栏容器 -->
+  <div class="seg-slider" id="navSlider"></div>
+    <div class="seg" data-page="assets">资产管理</div> <!-- 资产管理 Tab -->
+    <div class="seg active" data-page="control">批量控制</div> <!-- 默认激活 Tab：批量控制 -->
+    <div class="seg" data-page="history">历史记录</div> <!-- 历史记录 Tab -->
+  <div class="seg" data-page="live">执行日志</div> <!-- 新增独立日志 Tab -->
+  </div>
+  <div class="main-wrap"> <!-- 主内容外层，控制整体内边距与高度 -->
+    <div id="pages"> <!-- 多页面容器，内部各 section 独立显示/隐藏 -->
+      <!-- 资产管理 页面 -->
+      <section class="page" id="page-assets"> <!-- 资产管理页 section 容器 -->
+  <div class="card asset-main"> <!-- 外层卡片，自适应宽度 -->
+          <h4 class="section-title">资产管理 (导入 / 维护)</h4> <!-- 标题 -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;"> <!-- 基本信息输入网格 -->
+            <label class="field">IPMI IP<input id="f_ipmi" placeholder="单个或用于更新"/></label> <!-- IPMI 输入 -->
+            <label class="field">SSH IP<input id="f_ssh"/></label> <!-- SSH IP 输入 -->
+            <label class="field">ZBXid<input id="f_zbx"/></label> <!-- Zabbix ID 输入 -->
+            <!-- 移除并发许可(演示)字段 -->
+          </div>
+          <div style="margin-top:14px;display:grid;grid-template-columns:1fr;gap:14px;"> <!-- 仅备注 -->
+            <label class="field" style="grid-column:span 1">备注<textarea id="f_remark" rows="2"></textarea></label> <!-- 备注 -->
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;"> <!-- 操作按钮行 -->
+            <button id="btn_save" class="op-btn primary" style="flex:1 0 140px">保存/更新</button> <!-- 保存按钮 -->
+            <button id="btn_delete" class="op-btn red" style="flex:1 0 140px">删除</button> <!-- 删除按钮 -->
+            <div class="op-btn gray" style="flex:2 0 220px;cursor:default;">总数: <span id="machineCount">0</span></div> <!-- 总数显示 -->
+          </div>
+          <hr style="margin:22px 0;border:none;border-top:1px solid var(--line)"/> <!-- 分隔线 -->
+          <h4 class="section-title">导入/导出</h4> <!-- 导入导出标题 -->
+          <div style="display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:flex-end;"> <!-- 导入(左) / 导出(右) 分区 -->
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;"> <!-- 左侧导入区域 -->
+              <label class="field" style="flex:0 0 120px">格式<select id="import_fmt"><option value="json">JSON</option><option value="csv">CSV</option></select></label> <!-- 格式选择 -->
+              <label class="field" style="flex:0 0 220px">文件<input type="file" id="import_file" /></label> <!-- 文件选择 -->
+              <button id="btn_import" class="op-btn outline" style="flex:0 0 110px">导入</button> <!-- 导入按钮 -->
+              <button id="btn_upload_key" class="op-btn primary" style="flex:0 0 140px">导入SSH私钥</button> <!-- 上传 SSH Key -->
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;"> <!-- 右侧导出区域 -->
+              <label style="font-size:.65rem;align-self:center"><input type="checkbox" id="export_redact"/> 脱敏导出</label> <!-- 脱敏选项 -->
+              <button id="btn_export_json" class="op-btn gray" style="flex:0 0 130px">导出 JSON</button> <!-- 导出 JSON -->
+              <button id="btn_export_csv" class="op-btn gray" style="flex:0 0 130px">导出 CSV</button> <!-- 导出 CSV -->
+            </div>
+          </div>
+          <div class="card" style="margin-top:24px;background:var(--panel-alt);border-style:dashed;"> <!-- 资产列表嵌套卡片 -->
+            <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;"> <!-- 搜索与批量选择行 -->
+              <div style="display:flex;gap:6px;flex:1 0 260px;align-items:center;">
+                <input id="machineSearch" placeholder="搜索资产..." style="flex:1 1 auto;padding:8px 10px;border:1px solid var(--line);background:var(--bg-alt);color:var(--text);border-radius:4px;"/>
+                <button id="btn_machine_search" class="mini-btn" style="flex:0 0 auto">搜索</button>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;"> <!-- 选择控制按钮组 -->
+                <label style="font-size:.65rem"><input type="checkbox" id="select_all"/> 全选</label> <!-- 全选框 -->
+                <button id="btn_invert" class="mini-btn">反选</button> <!-- 反选 -->
+                <button id="btn_clear" class="mini-btn">清空</button> <!-- 清空选择 -->
+              </div>
+            </div>
+            <div class="status-table-wrap" style="margin-top:12px;max-height:340px;"> <!-- 表格容器 -->
+              <table id="machineTable"><thead><tr><th>#</th><th></th><th>IPMI</th><th>SSH</th><th>ZBXid</th><th>备注</th></tr></thead><tbody></tbody></table> <!-- 资产表 (User改为ZBXid) -->
+              <div class="placeholder" id="placeholder_assets"><div>No Data</div></div> <!-- 空数据占位 -->
+            </div>
+          </div>
+        </div>
+  </section>
+  <!-- 批量控制 页面 (默认) -->
+  <section class="page" id="page-control"> <!-- 批量控制页 section -->
+    <div class="fade" style="display:grid;grid-template-columns:300px 300px 1fr;gap:18px;align-items:start;"> <!-- 布局网格 (顶行3列) -->
+      <!-- Row1 Col1: 输入 -->
+      <div class="card" id="ctrl_input_card"> <!-- 输入卡片 -->
+        <h4 class="section-title">IPMI 输入</h4> <!-- 卡片标题 -->
+        <label class="field">IPMI 列表<textarea id="ctrl_ipmis" placeholder="一行一个"></textarea></label> <!-- 多行 IPMI 输入 -->
+        <div style="margin-top:12px;font-size:.65rem;color:var(--text-dim);line-height:1.2">解析后将匹配 SSH 信息，未登记列表可跳转到资产管理补充。</div> <!-- 提示文字 -->
+      </div>
+      <!-- Row1 Col2: 操作按钮区域 -->
+      <div class="card" id="ctrl_action_card"> <!-- 匹配操作卡片 -->
+        <h4 class="section-title">匹配操作</h4> <!-- 卡片标题 -->
+        <div style="display:flex;flex-direction:column;gap:10px;"> <!-- 按钮纵向排列 -->
+          <button class="op-btn primary" id="btn_lookup">解析并匹配</button> <!-- 解析按钮 -->
+          <button class="op-btn gray" id="btn_clear_ipmi">清空</button> <!-- 清空输入 -->
+          <button class="op-btn outline" id="btn_goto_assets">添加/修改机器信息</button> <!-- 跳转资产管理 -->
+        </div>
+        <div id="ctrl_missing" style="margin-top:12px;font-size:.65rem;color:var(--warn);display:none;"></div> <!-- 未登记提示 -->
+      </div>
+      <!-- Row1 Col3: 命令执行配置 -->
+      <div class="card" id="ctrl_exec_card" style="display:flex;flex-direction:column;gap:12px;"> <!-- 命令执行配置卡 -->
+        <h4 class="section-title">命令执行</h4> <!-- 标题 -->
+        <label class="field">命令<textarea id="ctrl_cmd" placeholder="要执行的命令"></textarea></label> <!-- 命令输入 -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;"> <!-- 参数行 -->
+          <label class="field" style="flex:1 0 100px">并发<input type="number" id="ctrl_parallel" value="0"/></label> <!-- 并发数 -->
+          <label class="field" style="flex:1 0 100px">超时(s)<input type="number" id="ctrl_timeout" value="30"/></label> <!-- 超时设置 -->
+          <label style="font-size:.65rem;align-self:flex-end"><input type="checkbox" id="ctrl_stream"/> 流式</label> <!-- 流式开关 -->
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.7rem;align-items:flex-end;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.65rem"><input type="radio" name="auth_mode" value="key" checked/> 私钥</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.65rem"><input type="radio" name="auth_mode" value="password"/> 密码</label>
+          </div>
+          <label class="field" style="flex:1 0 160px;display:none;" id="password_field">密码<input type="password" id="ctrl_password" placeholder="SSH 密码 (不保存)"/></label>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;"> <!-- 操作按钮行 -->
+          <button id="btn_ctrl_exec" class="op-btn primary" style="flex:1 0 100px">执行</button> <!-- 一次执行 -->
+          <button id="btn_ctrl_job" class="op-btn green" style="flex:1 0 100px">开始任务</button> <!-- 启动任务 -->
+          <button id="btn_ctrl_cancel" class="op-btn red" disabled style="flex:1 0 100px">取消任务</button> <!-- 取消任务 -->
+          <div class="op-btn outline" style="flex:1 0 120px;cursor:default;">Job: <span id="ctrl_jobid"></span></div> <!-- Job ID 显示 -->
+        </div>
+      </div>
+      <!-- Row2: 匹配结果 (跨前两列) -->
+      <div class="card" id="ctrl_match_card" style="grid-column:1 / span 2;"> <!-- 匹配结果卡片，跨两列 -->
+        <h4 class="section-title">匹配结果</h4> <!-- 标题 -->
+        <div class="status-table-wrap" style="max-height:300px;"> <!-- 表格滚动容器 -->
+          <table id="ctrl_match_table"><thead><tr><th></th><th>IPMI</th><th>SSH</th><th>ZBXid</th></tr></thead><tbody></tbody></table> <!-- 匹配结果表 (修改为 IPMI / SSH / ZBXid) -->
+          <div class="placeholder" id="ctrl_match_placeholder"><div>未解析</div></div> <!-- 未解析占位 -->
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"> <!-- 选择控制条 -->
+          <button class="mini-btn" id="btn_match_all">全选</button> <!-- 全选 -->
+          <button class="mini-btn" id="btn_match_inv">反选</button> <!-- 反选 -->
+          <button class="mini-btn" id="btn_match_none">清空</button> <!-- 清空 -->
+          <div style="margin-left:auto;font-size:.65rem;color:var(--text-dim);">选中 <span id="ctrl_selected_count">0</span></div> <!-- 选中计数 -->
+        </div>
+      </div>
+  <div id="ctrl_spacer"></div> <!-- 占位空格 (保持执行区高度) -->
+      <!-- Row3: 日志输出 (跨三列) -->
+  <div class="card" id="ctrl_log_card" style="grid-column:1 / span 3;display:flex;flex-direction:column;"> <!-- 日志区 -->
+        <h4 class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">执行日志 <button id="btn_open_live_log" class="mini-btn" style="font-size:.6rem;">独立窗口</button></h4> <!-- 标题 -->
+  <div class="status-table-wrap" style="flex:1 1 auto;"> <!-- 日志滚动容器，改为自适应高度 -->
+          <div id="ctrl_log" class="exec-log">等待执行...</div> <!-- 日志内容 -->
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- 独立实时日志 页面 -->
+  <section class="page" id="page-live"> <!-- 实时日志页 -->
+    <div class="fade">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;min-height:400px;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <h4 class="section-title" style="margin:0;flex:1 0 auto;">实时执行日志</h4>
+          <label style="font-size:.65rem"><input type="checkbox" id="live_autoscroll" checked/> 自动滚动</label>
+          <label style="font-size:.65rem"><input type="checkbox" id="live_wrap" /> 换行</label>
+          <button id="live_copy" class="mini-btn">复制</button>
+          <button id="live_save" class="mini-btn">保存</button>
+          <button id="live_clear" class="mini-btn red">清空</button>
+        </div>
+        <div class="status-table-wrap" style="flex:1 1 auto;max-height:calc(100vh - 200px);">
+          <pre id="live_log_pre" class="exec-log" style="margin:0;white-space:pre;">尚无日志</pre>
+        </div>
+        <div style="font-size:.6rem;color:var(--text-dim);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+          <div>展示所有执行事件（包含批量控制页流式/任务输出）。</div>
+          <div id="live_stats"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- 历史记录 页面 -->
+  <section class="page" id="page-history"> <!-- 历史记录页 section -->
+        <div class="fade"> <!-- 动画包裹 -->
+          <div class="card history-main" style="margin-bottom:14px;"> <!-- 历史卡片 (自适应) -->
+            <h4 class="section-title">执行历史</h4> <!-- 标题 -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;"> <!-- 筛选行 -->
+              <input id="hist_ipmi" placeholder="IPMI 过滤" style="flex:1 0 160px"/> <!-- IPMI 过滤输入 -->
+              <input id="hist_cmd" placeholder="命令关键字" style="flex:1 0 160px"/> <!-- 命令过滤输入 -->
+              <input id="hist_limit" type="number" value="20" style="width:90px"/> <!-- 限制条数 -->
+              <button id="hist_refresh" class="op-btn gray" style="flex:0 0 auto">刷新</button> <!-- 手动刷新 -->
+              <label style="font-size:.65rem;align-self:center"><input type="checkbox" id="hist_auto"/> 自动刷新</label> <!-- 自动刷新开关 -->
+            </div>
+            <div id="history_list" class="exec-log">加载中...</div> <!-- 历史列表 (高度由CSS控制) -->
+            <div style="margin-top:6px;color:var(--text-dim);font-size:.65rem">显示最近 N 条（按 ID 倒序），可过滤</div> <!-- 说明文字 -->
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 执行/任务 (保留原页面 - 现在整合在 control? 保留) -->
+    <div id="page-execute" class="page hidden" style="display:none;"> <!-- 保留的旧执行页面（隐藏） -->
+      <div class="fade"> <!-- 动画容器 -->
+        <div class="card" style="margin-bottom:14px;max-width:760px;"> <!-- 旧执行配置卡 -->
+          <h4 class="section-title">命令执行</h4> <!-- 旧标题 -->
+          <label class="field">命令<textarea id="exec_cmd" placeholder="要执行的命令"></textarea></label> <!-- 命令输入 -->
+          <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;"> <!-- 参数行 -->
+            <label class="field" style="flex:1 0 150px">并发<input type="number" id="exec_parallel" value="0"/></label> <!-- 并发 -->
+            <label class="field" style="flex:1 0 150px">超时(s)<input type="number" id="exec_timeout" value="30"/></label> <!-- 超时 -->
+            <label class="field" style="flex:0 0 auto;margin-top:18px;font-size:.65rem"><input type="checkbox" id="stream_mode"/> 流式输出</label> <!-- 流式开关 -->
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;"> <!-- 操作按钮行 -->
+            <button id="btn_exec" class="op-btn primary" style="flex:1 0 140px">一次执行</button> <!-- 一次执行按钮 -->
+            <button id="btn_start_job" class="op-btn green" style="flex:1 0 140px">开始任务</button> <!-- 开始任务按钮 -->
+            <button id="btn_cancel_job" class="op-btn red" disabled style="flex:1 0 140px">取消任务</button> <!-- 取消任务 -->
+            <div class="op-btn outline" style="flex:1 0 140px;cursor:default;">Job: <span id="job_id"></span></div> <!-- Job ID 显示 -->
+          </div>
+        </div>
+        <div class="card"> <!-- 旧执行结果卡 -->
+          <h4 class="section-title">执行结果</h4> <!-- 标题 -->
+          <div id="exec_result" class="exec-log">尚无结果</div> <!-- 结果输出区域 -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="statusbar">状态: <span id="statusText" class="value">就绪</span></div> <!-- 底部状态栏 -->
+  <div class="toast-container" id="toast_container"></div>
+  <script src="wailsjs/wailsjs/runtime/runtime.js"></script> <!-- Wails 运行时脚本 -->
+  <script src="wailsjs/wailsjs/go/wailsapi/Backend.js"></script> <!-- 生成的 Go 后端绑定 -->
+  <script src="app.js"></script> <!-- 前端逻辑脚本 -->
+</body>
+</html>
