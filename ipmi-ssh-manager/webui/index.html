@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>IPMI SSH Manager</title>
+<style>
+body{font-family:system-ui,Arial;padding:10px;margin:0;background:#111;color:#eee}
+body.light{background:#fafafa;color:#222}
+header{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+section{margin-bottom:14px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border:1px solid #444;padding:4px}
+body.light th,body.light td{border-color:#ccc}
+input[type=text],textarea{width:100%;box-sizing:border-box}
+pre{background:#000;color:#0f0;padding:6px;max-height:230px;overflow:auto;font-size:12px}
+body.light pre{background:#f0f0f0;color:#060}
+.flex{display:flex;gap:12px}
+.col{flex:1 1 0}
+small{opacity:.7}
+#status{font-weight:bold}
+label.inline{margin-right:8px;white-space:nowrap}
+.muted{opacity:.5}
+</style>
+<script>
+(()=>{
+  let THEME='dark';
+  const state={ machines:[], histTimer:null, currentJob:null, jobOff:null };
+  function qs(sel){return document.querySelector(sel)}
+  function saveStatus(msg){ qs('#status').textContent=msg }
+  function toggleTheme(){ THEME = THEME==='dark'?'light':'dark'; document.body.classList.toggle('light', THEME==='light'); saveStatus('Theme: '+THEME) }
+  async function wailsInvoke(name,...args){ if(window.go&&window.go.wailsapi&&window.go.wailsapi.Backend&&window.go.wailsapi.Backend[name]) return window.go.wailsapi.Backend[name](...args); throw new Error('Wails binding not ready:'+name)}
+
+  async function loadMachines(){ const list=await wailsInvoke('ListMachines'); state.machines=list; render(list); }
+  function render(list){ const tb=qs('#mtable tbody'); tb.innerHTML=''; list.forEach((m,i)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${i+1}</td><td><input type=checkbox data-id="${m.id}"/></td><td>${m.ipmi_ip}</td><td>${m.ssh_ip||''}</td><td>${m.ssh_user||''}</td><td>${m.remark||''}</td>`; tr.onclick=()=>fillForm(m); tb.appendChild(tr);}); qs('#count').textContent='('+list.length+')'; }
+  function fillForm(m){ f_ipmi.value=m.ipmi_ip; f_ssh.value=m.ssh_ip||''; f_user.value=m.ssh_user||''; f_remark.value=m.remark||''; }
+  async function upsertMachine(){ const m={id:0, ipmi_ip:f_ipmi.value, ssh_ip:f_ssh.value, ssh_user:f_user.value, ssh_key:f_key.value, remark:f_remark.value}; await wailsInvoke('UpsertMachine', m); await loadMachines(); saveStatus('保存成功'); }
+  async function deleteMachine(){ if(!f_ipmi.value) return; await wailsInvoke('DeleteMachine', f_ipmi.value); await loadMachines(); saveStatus('删除完成'); }
+  function selectedIDs(){ return [...document.querySelectorAll('#mtable tbody input[type=checkbox]:checked')].map(x=>Number(x.dataset.id)) }
+  async function executeCmd(){
+    const ids=selectedIDs(); if(ids.length===0){alert('请选择机器');return}
+    const command=f_cmd.value; const useStream=stream_mode.checked; const parallel=parseInt(task_parallel.value)||0; const timeout=parseInt(task_timeout.value)||30; btn_exec.disabled=true; saveStatus(useStream?'执行中(流式)...':'执行中...');
+    if(useStream && window.runtime && runtime.EventsOn){
+      exec_result.innerHTML='<pre id="exec_lines"></pre>';
+      const linesEl=document.getElementById('exec_lines');
+  function append(line){ linesEl.textContent += line+'\n'; linesEl.scrollTop=linesEl.scrollHeight }
+      const off = runtime.EventsOn('exec_result', (data)=>{
+        if(data.job_id) return; // 任务流数据不混入此模式
+        const p = data.progress!==undefined?(' ['+Math.round(data.progress*100)+'%]'):'';
+        append(data.ipmi_ip+': '+(data.stdout||'')+p+(data.error?(' ERR '+data.error):''))
+      });
+      try{ await wailsInvoke('ExecuteStreamEvents', command, ids, timeout, parallel); saveStatus('执行完成'); }
+      catch(e){ append('执行失败: '+e); saveStatus('执行失败'); }
+      finally { off(); btn_exec.disabled=false; await loadHistory(); }
+      return;
+    }
+    try{ const res=await wailsInvoke('ExecuteStream', command, ids, timeout, parallel); exec_result.innerHTML='<pre>'+res.map(r=>r.ipmi_ip+': '+(r.Stdout||r.stdout||'')+(r.Err||r.error?(' ERR '+(r.Err||r.error)):'')).join('\n')+'</pre>'; saveStatus('执行完成'); }
+    catch(e){ exec_result.innerHTML='<pre>执行失败: '+e+'</pre>'; saveStatus('执行失败'); }
+    finally { btn_exec.disabled=false; await loadHistory(); }
+  }
+  function clearExec(){ exec_result.innerHTML=''; }
+  function toggleAll(chk){ document.querySelectorAll('#mtable tbody input[type=checkbox]').forEach(c=>c.checked=chk.checked) }
+  function selectNone(){ document.querySelectorAll('#mtable tbody input[type=checkbox]').forEach(c=>c.checked=false) }
+  function selectInvert(){ document.querySelectorAll('#mtable tbody input[type=checkbox]').forEach(c=>c.checked=!c.checked) }
+  function applyFilter(){ const q=search.value.trim().toLowerCase(); if(!q){ render(state.machines); return } const f=state.machines.filter(m=>[m.ipmi_ip,m.ssh_ip,m.ssh_user,m.remark].some(v=>(v||'').toLowerCase().includes(q))); render(f); }
+  async function exportMachines(fmt){ const redact=export_redact&&export_redact.checked; try{ const data=await wailsInvoke('ExportMachines', fmt, !!redact); const blob=new Blob([data],{type:fmt==='csv'?'text/csv':'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='machines.'+fmt; a.click(); URL.revokeObjectURL(a.href); saveStatus('导出'+fmt+(redact?'(脱敏)':'')+'完成'); }catch(e){ alert('导出失败:'+e) } }
+  async function importMachines(){ const file=import_file.files[0]; if(!file){ alert('未选择文件'); return } const fmt=import_fmt.value; const text=await file.text(); try{ const n=await wailsInvoke('ImportMachines', text, fmt); saveStatus('导入 '+n+' 条'); await loadMachines(); }catch(e){ alert('导入失败:'+e) } }
+  async function loadHistory(){ const limit=Number(hist_limit.value)||20; const ipf=filter_ipmi.value.trim(); const cmdf=filter_cmd.value.trim(); try{ let hs; if(ipf||cmdf){ hs=await wailsInvoke('RecentHistoryFiltered', limit, ipf, cmdf); } else { hs=await wailsInvoke('RecentHistory', limit); } history.innerHTML='<pre>'+hs.map(h=>h.ipmi_ip+': '+h.command+' => '+(h.exit_code||h.exitCode)).join('\n')+'</pre>'; saveStatus('历史:'+hs.length); }catch(e){ history.textContent='历史加载失败 '+e; saveStatus('历史加载失败'); } }
+  function toggleHistAuto(){ if(hist_auto.checked){ state.histTimer=setInterval(loadHistory,5000); } else { clearInterval(state.histTimer); } }
+
+  // Job 执行控制
+  async function startJob(){
+    const ids=selectedIDs(); if(ids.length===0){alert('请选择机器');return}
+    const command=f_cmd.value.trim(); if(!command){alert('命令为空');return}
+    if(state.currentJob){alert('已有任务: '+state.currentJob);return}
+    if(!(window.runtime&&runtime.EventsOn)){alert('事件系统未就绪');return}
+    const parallel = parseInt(task_parallel.value)||0; const timeout = parseInt(task_timeout.value)||30;
+    exec_result.innerHTML='<pre id="exec_lines"></pre>';
+    const linesEl=document.getElementById('exec_lines');
+    function append(l){ linesEl.textContent+=l+'\n'; linesEl.scrollTop=linesEl.scrollHeight }
+  const off = runtime.EventsOn('exec_result', data=>{ if(data.job_id && data.job_id!==state.currentJob)return; if(!data.job_id && state.currentJob)return; const p = data.progress!==undefined?(' ['+Math.round(data.progress*100)+'%]'):''; append((data.ipmi_ip||'?')+': '+(data.stdout||'')+p+(data.error?(' ERR '+data.error):'')) });
+    const offDone = runtime.EventsOn('exec_job_done', data=>{ if(data.job_id===state.currentJob){ finishJob(); saveStatus('任务完成 '+data.job_id); offDone(); }});
+    btn_start_job.disabled=true; btn_cancel_job.disabled=false; saveStatus('任务启动中...');
+    try{ const jobID=await wailsInvoke('StartJob','',command,ids, timeout, parallel); state.currentJob=jobID; state.jobOff=()=>{off(); offDone();}; job_id_label.textContent=jobID; saveStatus('任务运行中 '+jobID); }
+    catch(e){ off(); offDone(); append('启动失败: '+e); saveStatus('任务失败'); btn_start_job.disabled=false; btn_cancel_job.disabled=true; }
+  }
+  async function cancelJob(){ if(!state.currentJob)return; const ok=await wailsInvoke('CancelJob', state.currentJob); saveStatus('取消请求 '+(ok?'已发送':'未找到')); setTimeout(()=>finishJob(),300); }
+  function finishJob(){ if(state.jobOff){ state.jobOff(); state.jobOff=null } btn_start_job.disabled=false; btn_cancel_job.disabled=true; job_id_label.textContent=''; state.currentJob=null; }
+
+  Object.assign(window,{toggleTheme,loadMachines,upsertMachine,deleteMachine,executeCmd,clearExec,loadHistory,toggleAll,selectNone,selectInvert,applyFilter,exportMachines,importMachines,toggleHistAuto,startJob,cancelJob});
+  loadMachines(); loadHistory();
+})();
+</script>
+</head>
+<body>
+<header>
+  <button onclick="toggleTheme()">主题切换</button>
+  <span id="status">Ready</span>
+  <span style="flex:1"></span>
+  <input id="search" placeholder="搜索..." oninput="applyFilter()" style="width:160px" />
+  <label class="inline"><input type="checkbox" id="hist_auto" onchange="toggleHistAuto()"/>历史自动刷新</label>
+  <label class="inline"><input type="checkbox" id="stream_mode"/>流式执行</label>
+</header>
+
+<section class="flex">
+  <div class="col" style="max-width:360px">
+    <h3>机器维护 <span id="count"></span></h3>
+    <div>
+      <label>IPMI IP<input id="f_ipmi" type="text"/></label><br/>
+      <label>SSH IP<input id="f_ssh" type="text"/></label><br/>
+      <label>SSH User<input id="f_user" type="text"/></label><br/>
+      <label>SSH Key<textarea id="f_key" rows=4></textarea></label><br/>
+      <label>备注<textarea id="f_remark" rows=2></textarea></label><br/>
+      <button onclick="upsertMachine()">保存/更新</button>
+      <button onclick="deleteMachine()">删除</button>
+    </div>
+    <hr/>
+    <div>
+      <h4>导入/导出</h4>
+      <select id="import_fmt"><option value="json">JSON</option><option value="csv">CSV</option></select>
+      <input type="file" id="import_file"/>
+      <button onclick="importMachines()">导入</button>
+      <label class="inline"><input type="checkbox" id="export_redact"/>脱敏导出</label><br/>
+      <button onclick="exportMachines('json')">导出JSON</button>
+      <button onclick="exportMachines('csv')">导出CSV</button>
+    </div>
+  </div>
+  <div class="col">
+    <h3>机器列表</h3>
+    <div style="margin-bottom:4px">
+      <label class="inline"><input type="checkbox" onchange="toggleAll(this)"/>全选</label>
+      <button onclick="selectNone()">全不选</button>
+      <button onclick="selectInvert()">反选</button>
+    </div>
+    <table id="mtable"><thead><tr><th>#</th><th></th><th>IPMI IP</th><th>SSH IP</th><th>User</th><th>备注</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="col" style="max-width:440px">
+    <h3>执行 / 任务</h3>
+    <textarea id="f_cmd" rows=3 placeholder="输入要执行的命令"></textarea>
+    <div style="margin:4px 0">
+      <button id="btn_exec" onclick="executeCmd()">一次执行</button>
+      <button id="btn_start_job" onclick="startJob()">开始任务</button>
+      <button id="btn_cancel_job" onclick="cancelJob()" disabled>取消任务</button>
+      <span class="muted">Job:<span id="job_id_label"></span></span>
+    </div>
+    <div style="margin:4px 0">
+      <label>历史条数<input type="number" id="hist_limit" value="20" style="width:60px"/></label>
+      <label>历史IPMI<input type="text" id="filter_ipmi" style="width:90px" oninput="loadHistory()"/></label>
+      <label>命令关键字<input type="text" id="filter_cmd" style="width:120px" oninput="loadHistory()"/></label>
+      <button onclick="loadHistory()">刷新历史</button>
+    </div>
+    <div style="margin:4px 0">
+      <label>并发<input type="number" id="task_parallel" value="0" title="0使用全局并发" style="width:70px"/></label>
+      <label>超时(s)<input type="number" id="task_timeout" value="30" style="width:70px"/></label>
+    </div>
+    <div id="exec_result"><pre>尚无结果</pre></div>
+  </div>
+</section>
+
+<section class="flex">
+  <div class="col">
+    <h3>执行历史</h3>
+    <div id="history"><pre>加载中...</pre></div>
+    <small>显示最近 N 条（按 ID 倒序），可按 IPMI 与命令过滤。</small>
+  </div>
+</section>
+</body>
+</html>
